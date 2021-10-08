@@ -94,7 +94,7 @@ class IsingModel:
         return J
 
 
-    def hamiltonian(self, spin_state):
+    def get_hamiltonian(self, spin_state):
         """calculate Hamiltonian of Ising model for a given spin state """
         if spin_state.dim() == 1:
             s = spin_state.float().unsqueeze(0)
@@ -107,7 +107,7 @@ class IsingModel:
         elif H.dim() == 2:
             return torch.diag(H)
 
-    def magnetisation(self, spin_state):
+    def get_magnetisation(self, spin_state):
         """calculate magnetisation of Ising model for a given spin state """
         m = 0.
         if spin_state.dim() == 1:
@@ -116,50 +116,50 @@ class IsingModel:
             m = torch.mean(spin_state, dim=1)
         return m
 
-    def partition_function(self, beta):
+    def get_Z_true(self, beta):
         """calculate the partition function of Ising model for a given beta """
         num_state = 2 ** self.num_spins
         Z = 0.
         for i_state in range(num_state):
             binary = decimal_to_binary_tensor(i_state, width=self.num_spins)
             spin_state = 1 - 2 * binary
-            H = self.hamiltonian(spin_state)
+            H = self.get_hamiltonian(spin_state)
             Z += torch.exp(- beta * H)
         return Z
 
 
-    def energy_true(self, beta):
+    def get_energy_true(self, beta):
         """calculate the expectation value of the Energy of Ising model with Boltzmann distribution """
         num_state = 2 ** self.num_spins
-        Z = self.partition_function(beta)
+        Z = self.get_Z_true(beta)
         energy = 0.
         for i_state in range(num_state):
             binary = decimal_to_binary_tensor(i_state, width=self.num_spins)
             spin_state = 1 - 2 * binary
-            H = self.hamiltonian(spin_state)
+            H = self.get_hamiltonian(spin_state)
             energy += H * torch.exp(- beta * H)
         return energy / Z
 
-    def m_square_true(self, beta):
+    def get_m_square_true(self, beta):
         """calculate the expectation value of square of the magnetisation in Ising model with Boltzmann distribution """
         num_state = 2 ** self.num_spins
-        Z = self.partition_function(beta)
+        Z = self.get_Z_true(beta)
         m_square = 0.
         for i_state in range(num_state):
             binary = decimal_to_binary_tensor(i_state, width=self.num_spins)
             spin_state = 1 - 2 * binary
-            m = self.magnetisation(spin_state)
-            H = self.hamiltonian(spin_state)
+            m = self.get_magnetisation(spin_state)
+            H = self.get_hamiltonian(spin_state)
             m_square += m * m * torch.exp(- beta * H)
         return m_square / Z
 
-    def entropy_true(self, beta):
+    def get_entropy_true(self, beta):
         """calculate the entropy of Ising model with Boltzmann distribution """
-        Z = self.partition_function(beta).unsqueeze(0)
-        return beta * self.energy_true(beta) + torch.log(Z)
+        Z = self.get_Z_true(beta).unsqueeze(0)
+        return beta * self.get_energy_true(beta) + torch.log(Z)
 
 
-    def onsagar_solution(self, beta, interaction):
+    def get_energy_onsagar(self, beta, interaction):
         """Onsagar solution; analytic solution of energy for the infinite 2d square Ising lattice """
         if interaction == 'ferromagnetic':
             J = 1.
@@ -213,7 +213,7 @@ class IsingModel:
         return phi, Jdiag, A
 
 
-    def Z_analytic(self, beta):
+    def get_Z_anal(self, beta):
         """analytic solution of partition function for 2d square Ising lattice even with the random bond J = 1 or -1 """
         nspin = self.num_spins
         nedge = self.num_edges
@@ -231,7 +231,7 @@ class IsingModel:
         return Z.real
 
 
-    def energy_analytic(self, beta):
+    def get_energy_anal(self, beta):
         """calculate energy from taking beta-derivative of Z_analytic """
         nspin = self.num_spins
         nedge = self.num_edges
@@ -320,7 +320,7 @@ class IsingSampler:
         self.rbm.get_biases_b()
 
 
-    def rbm_mapping(self, sample_initial):
+    def sample_by_rbm_mapping(self, sample_initial):
         """gibbs sampling with conditional probs from Ising-RBM mapping: one step """
         v_current = sample_initial
         pr_h = self.rbm.to_hidden(v_current)
@@ -330,7 +330,7 @@ class IsingSampler:
         return v_next
 
 
-    def single_flip(self, beta, sample_initial):
+    def sample_by_single_flip(self, beta, sample_initial):
         """sampling by metropolis Monte Carlo method with single-flip """
         spins = 1 - 2 * sample_initial
         # pick a random spin
@@ -353,7 +353,7 @@ class IsingSampler:
 
 class AnalyzeData:
 
-    def prob(self, dataset):
+    def get_prob_data(self, dataset):
         """calculate the probability of each samples in the dataset by counting """
         data_size = dataset.size()[0]
         data_length = dataset.size()[1]
@@ -368,9 +368,9 @@ class AnalyzeData:
         return prob
 
 
-    def entropy(self, dataset):
+    def get_entropy_data(self, dataset):
         """calculate the Entropy of the dataset """
-        prob = self.prob(dataset)
+        prob = self.get_prob_data(dataset)
         data_length = dataset.size()[1]
         num_state = 2 ** data_length
         entropy = 0.
@@ -380,40 +380,59 @@ class AnalyzeData:
         return entropy
 
 
-    def energy(self, model, dataset):
+    def get_energy_data(self, model, dataset):
         """calculate the average of the Energy from the dataset """
         spinset = 1 - 2 * dataset
-        E = model.hamiltonian(spinset)
+        E = model.get_hamiltonian(spinset)
         return torch.mean(E)
 
 
-    def magnetisation(self, dataset):
+    def get_magnetisation_data(self, dataset):
         """calculate the average of the magnetization from the dataset """
         spinset = 1 - 2 * dataset
         m = torch.mean(spinset, dim=1)
         return torch.mean(m)
 
 
-    def m_square(self, dataset):
+    def get_m_square_data(self, dataset):
         """calculate the average of the m_square from the dataset """
         spinset = 1 - 2 * dataset
         m = torch.mean(spinset, dim=1)
         return torch.mean(m ** 2)
 
 
-    def correlation(self, function, step_eff):
-        """calculate the estimate of autocorrelation for energy """
+    def get_correlation(self, function, step_rough: int):
+        """calculate the estimate of autocorrelation for energy
+
+        Args:
+            function ([type]): [description]
+            step_rough (int): It should be smaller than N. It is just for finding M << N s.t corr[M] converges to zero
+
+        Returns:
+            [type]: [description]
+        """
+
         N = function.size()[0]
-        M = step_eff  # effective number of steps M << N
-        corr = torch.zeros(M)
         mean = torch.mean(function)
-        for t in range(M):
+        corr = []
+        step_eff = 0
+
+        for t in range(step_rough):
+
+            corr_temp = 0
+            
             for n in range(N - t):
-                corr[t] += (function[n] - mean) * (function[n + t] - mean) / (N - t)
-        return corr
+                corr_temp += (function[n] - mean) * (function[n + t] - mean) / (N - t)
+
+            corr.append(corr_temp)
+            
+            if corr[t] < 0.01:      # stop and break the loop when correlation becomes small enough
+                step_eff = t        # return t as the effective number of steps M << N
+                break
+        return corr, step_eff
 
 
-    def autocorrtime(self, corr, step_eff):
+    def get_autocorrtime(self, corr, step_eff):
         """calculate the estimate of autocorrelation time for energy """
         tau = 0.
         for i in range(step_eff):
@@ -443,13 +462,13 @@ class PlotData:
         if sampling_method == 'rbm-mapping':
             self.sampler.get_RBM_parameters(beta)
             for step_i in range(step_max):
-                energy[step_i] = self.anal.energy(self.model, sample)
-                sample = self.sampler.rbm_mapping(sample)
+                energy[step_i] = self.anal.get_energy_data(self.model, sample)
+                sample = self.sampler.sample_by_rbm_mapping(sample)
         # sampling by single-flip MC
         elif sampling_method == 'single-flip':
             for step_i in range(step_max):
-                energy[step_i] = self.anal.energy(self.model, sample)
-                sample = self.sampler.single_flip(beta, sample)
+                energy[step_i] = self.anal.get_energy_data(self.model, sample)
+                sample = self.sampler.sample_by_single_flip(beta, sample)
         else:
             raise Exception("invalid sampling_method")
         return energy
@@ -463,14 +482,14 @@ class PlotData:
             for i, beta in enumerate(beta_range):
                 self.sampler.get_RBM_parameters(beta)
                 for _ in range(step_max):
-                    sample = self.sampler.rbm_mapping(sample)
-                energy[i] = self.anal.energy(self.model, sample)
+                    sample = self.sampler.sample_by_rbm_mapping(sample)
+                energy[i] = self.anal.get_energy_data(self.model, sample)
         # sampling by single-flip MC
         elif sampling_method == 'single-flip':
             for i, beta in enumerate(beta_range):
                 for _ in range(step_max):
-                    sample = self.sampler.single_flip(beta, sample)
-                energy[i] = self.anal.energy(self.model, sample)
+                    sample = self.sampler.sample_by_single_flip(beta, sample)
+                energy[i] = self.anal.get_energy_data(self.model, sample)
         else:
             raise Exception("invalid sampling_method")
         return energy
@@ -483,13 +502,13 @@ class PlotData:
         #E_true = np.zeros(len(beta_range))
         #E_onsagar = np.zeros(len(beta_range))
 
-        for i, beta in enumerate(beta_range): # enumerate 를 사용하여 i 정의하는거 줄여보기
-            E_anal[i] = self.model.energy_analytic(beta)
-            #E_true[i] = self.model.energy_true(beta)
+        for i, beta in enumerate(beta_range):
+            E_anal[i] = self.model.get_energy_anal(beta)
+            #E_true[i] = self.model.get_energy_true(beta)
 
         E_sample1 = self.get_energy_in_terms_of_beta(beta_range, step_max[0], sampling_methods[0], sample_initial).numpy()
         E_sample2 = self.get_energy_in_terms_of_beta(beta_range, step_max[1], sampling_methods[1], sample_initial).numpy()
-        #E_onsagar = self.model.onsagar_solution(beta_range, interaction)
+        #E_onsagar = self.model.get_energy_onsagar(beta_range, interaction)
 
         #pylab.plot(beta_range, E_true/self.num_edges, label='E_true')
         #pylab.plot(beta_range, E_onsagar, label='E_onsagar')
@@ -518,14 +537,14 @@ class PlotData:
         pylab.show()
 
 
-    def plot_corr_over_mcstep(self, step_max, step_eff, sampling_method, sample_initial):
+    def plot_corr_over_mcstep(self, step_max, step_rough, sampling_method, sample_initial):
         """plot autocorrelation for energy in terms of the number of Markov-chain steps for a given beta """
         beta_start, beta_end, beta_step = 0.25, 1.00, 0.10
         pylab.figure(1)
-        x = np.arange(step_eff)
+        x = np.arange(step_rough)
         for beta in np.arange(beta_start, beta_end, beta_step):
             energy = self.get_energy_in_terms_of_num_steps(beta, step_max, sampling_method, sample_initial)
-            corr = self.anal.correlation(energy / self.num_edges, step_eff)
+            corr = self.anal.get_correlation(energy / self.num_edges, step_rough)
             corr_normalized = corr / corr[0]
             y = corr_normalized.numpy()
             pylab.plot(x, y, label="%.2f"% beta)
@@ -536,16 +555,16 @@ class PlotData:
         pylab.show()
 
 
-    def plot_tau_over_beta(self, beta_range, step_max, step_eff, sampling_method, sample_initial):
+    def plot_tau_over_beta(self, beta_range, step_max, step_rough, sampling_method, sample_initial):
         """plot autocorrelation time for energy in terms of Markov step for a given beta """
         pylab.figure(1)
         tau = []
         for beta in beta_range:
             energy = self.get_energy_in_terms_of_num_steps(beta, step_max, sampling_method, sample_initial)
-            corr = self.anal.correlation(energy / self.num_edges, step_eff)
-            tau.append(self.anal.autocorrtime(corr, step_eff))
+            corr, step_eff = self.anal.get_correlation(energy / self.num_edges, step_rough)
+            tau.append(self.anal.get_autocorrtime(corr, step_eff))
         if sampling_method=='rbm-mapping':
-            pylab.plot(beta_range, tau, label='Ising-RBM mapping (ensemble=%d, N=%d, M=%d)' % (self.ensemble_size, step_max, step_eff))
+            pylab.plot(beta_range, tau, label='Ising-RBM mapping (ensemble=%d, N=%d, M=%d)' % (self.ensemble_size, step_max, step_rough))
         elif sampling_method=='single-flip':
             pylab.plot(beta_range, tau, label='Single-flip')
         else:
@@ -557,18 +576,18 @@ class PlotData:
         pylab.show()
 
 
-    def plot_tau_compare(self, beta_range, step_max, step_eff, sampling_method, sample_initial):
+    def plot_tau_compare(self, beta_range, step_max, step_rough, sampling_method, sample_initial):
         """plot autocorrelation time for energy from two different sampling methods in terms of Markov step for a given beta """
         pylab.figure(1)
         tau1 = []
         tau2 = []
         for beta in beta_range:
             energy1 = self.get_energy_in_terms_of_num_steps(beta, step_max[0], sampling_method[0], sample_initial)
-            corr1 = self.anal.correlation(energy1 / self.num_edges, step_eff[0])
-            tau1.append(self.anal.autocorrtime(corr1, step_eff[0]))
+            corr1, step_eff1 = self.anal.get_correlation(energy1 / self.num_edges, step_rough)
+            tau1.append(self.anal.get_autocorrtime(corr1, step_eff1))
             energy2 = self.get_energy_in_terms_of_num_steps(beta, step_max[1], sampling_method[1], sample_initial)
-            corr2 = self.anal.correlation(energy2 / self.num_edges, step_eff[1])
-            tau2.append(self.anal.autocorrtime(corr2, step_eff[1]))
+            corr2, step_eff2 = self.anal.get_correlation(energy2 / self.num_edges, step_rough)
+            tau2.append(self.anal.get_autocorrtime(corr2, step_eff2))
         pylab.plot(beta_range, tau1, label='Ising-RBM mapping')
         pylab.plot(beta_range, tau2, label='Single-flip')
         pylab.xlabel('beta')
@@ -585,8 +604,8 @@ class PlotData:
         Z_true = torch.zeros(len(beta_range))
         Z_anal = torch.zeros(len(beta_range), dtype=torch.complex64)
         for i, beta in enumerate(beta_range):
-            Z_true[i] = self.model.partition_function(beta)
-            Z_anal[i] = self.model.Z_analytic(beta)
+            Z_true[i] = self.model.get_Z_true(beta)
+            Z_anal[i] = self.model.get_Z_anal(beta)
         pylab.plot(beta_range, Z_true, label='Z_true')
         pylab.plot(beta_range, Z_anal, linestyle='dashed', label='Z_anal')
         pylab.xlabel('beta')
@@ -598,13 +617,13 @@ class PlotData:
 ##################################################################################################################
 def main(plot_number):
     # set the size and interaction type of Ising model
-    num_rows, num_cols = 16, 16
+    num_rows, num_cols = 3, 3
     interaction = ['ferromagnetic', 'anti-ferromagnetic', 'random-bond']
     # set sample size
-    ensemble_size = 1
-    # set the number of markov-chain steps(N=step_max, M=step_eff) when sampling
-    step_max = [10, 10]
-    step_eff = [1, 1]
+    ensemble_size = 1000
+    # set the number of markov-chain steps(N=step_max, step_rough) when sampling
+    step_max = [100, 100]
+    step_rough = 20
     # set the range of beta
     beta_start, beta_end, beta_step = 0.01, 1.0, 0.01
     beta_range = np.arange(beta_start, beta_end, beta_step)
@@ -619,11 +638,11 @@ def main(plot_number):
     elif plot_number == 2:
         plot.plot_energy_over_mcstep(step_max[0], sampling_methods[0], sample_initial)
     elif plot_number == 3:
-        plot.plot_corr_over_mcstep(step_max[0], step_eff[0], sampling_methods[0], sample_initial)
+        plot.plot_corr_over_mcstep(step_max[0], step_rough, sampling_methods[0], sample_initial)
     elif plot_number == 4:
-        plot.plot_tau_over_beta(beta_range, step_max[0], step_eff[0], sampling_methods[0], sample_initial)
+        plot.plot_tau_over_beta(beta_range, step_max[0], step_rough, sampling_methods[0], sample_initial)
     elif plot_number == 5:
-        plot.plot_tau_compare(beta_range, step_max, step_eff, sampling_methods, sample_initial)
+        plot.plot_tau_compare(beta_range, step_max, step_rough, sampling_methods, sample_initial)
     elif plot_number == 6:
         plot.plot_Z_over_beta(beta_range)
     else:
