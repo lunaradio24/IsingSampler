@@ -31,7 +31,8 @@ def test_Z_anal_fits_to_Z_true() -> bool:
         Z_anal[i] = model.get_Z_anal(beta)
         Z_true[i] = model.get_Z_true(beta)
     
-    num_errors = sum(np.where(abs(Z_true - Z_anal)/Z_true < 0.05, True, False))
+    MSE = np.square(np.subtract(Z_true, Z_anal)).mean()
+    num_errors = sum(np.where(np.square(np.subtract(Z_true, Z_anal)) > MSE, True, False))
 
     if num_errors < len(beta_range) * 0.05:
         return True
@@ -49,7 +50,8 @@ def test_E_anal_fits_to_E_true() -> bool:
         E_anal[i] = model.get_energy_anal(beta)
         E_true[i] = model.get_energy_true(beta)
 
-    num_errors = sum(np.where(abs(E_true - E_anal)/E_true < 0.05, True, False))
+    MSE = np.square(np.subtract(E_true, E_anal)).mean()
+    num_errors = sum(np.where(np.square(np.subtract(E_true, E_anal)) > MSE, True, False))
 
     if num_errors < len(beta_range) * 0.05:
         return True
@@ -66,7 +68,8 @@ def test_E_sample_fits_to_E_anal() -> bool:
     for i, beta in enumerate(beta_range):
         E_anal[i] = model.get_energy_anal(beta)
     
-    num_errors = sum(np.where(abs(E_anal - E_sample)/E_anal < 0.05, True, False))
+    MSE = np.square(np.subtract(E_sample, E_anal)).mean()
+    num_errors = sum(np.where(np.square(np.subtract(E_sample, E_anal)) > MSE, True, False))
 
     if num_errors < len(beta_range) * 0.05:
         return True
@@ -74,10 +77,13 @@ def test_E_sample_fits_to_E_anal() -> bool:
         return False
 
 
-def test_corr_convergence() -> bool:
-    # check if correlation of samples converges to zero as increasing number of MCMC steps
+def test_corr_convergence(beta) -> bool:
+    # check if correlation of samples converges to zero as increasing number of MCMC steps for a given beta
 
-    if 1>0:
+    energy = plot.get_energy_in_terms_of_num_steps(beta, step_max, sampling_methods[0], sample_initial)
+    corr = plot.anal.get_correlation(energy / plot.num_edges, step_rough, effbreak=False)[0]
+    
+    if corr[step_rough] / corr[0] < 0.01:
         return True
     else:
         return False
@@ -102,6 +108,5 @@ def main():
 
 if __name__ == '__main__':
     main()
-
 
     

@@ -401,7 +401,7 @@ class AnalyzeData:
         return torch.mean(m ** 2)
 
 
-    def get_correlation(self, function, step_rough: int):
+    def get_correlation(self, function, step_rough: int, effbreak):
         """calculate the estimate of autocorrelation for energy
 
         Args:
@@ -414,21 +414,21 @@ class AnalyzeData:
 
         N = function.size()[0]
         mean = torch.mean(function)
-        corr = []
-        step_eff = 0
+        corr = torch.zeros(step_rough)
+        if effbreak == True:
+            step_eff = 0
+        else:
+            step_eff = step_rough
 
         for t in range(step_rough):
-
-            corr_temp = 0
             
             for n in range(N - t):
-                corr_temp += (function[n] - mean) * (function[n + t] - mean) / (N - t)
-
-            corr.append(corr_temp)
+                corr[t] += (function[n] - mean) * (function[n + t] - mean) / (N - t)
             
-            if corr[t] < 0.01:      # stop and break the loop when correlation becomes small enough
-                step_eff = t        # return t as the effective number of steps M << N
+            if effbreak == True and corr[t]/corr[0] < 0.01:     # stop and break the loop when correlation becomes small enough
+                step_eff = t+1                                  # return t as the effective number of steps M << N
                 break
+        
         return corr, step_eff
 
 
@@ -544,7 +544,7 @@ class PlotData:
         x = np.arange(step_rough)
         for beta in np.arange(beta_start, beta_end, beta_step):
             energy = self.get_energy_in_terms_of_num_steps(beta, step_max, sampling_method, sample_initial)
-            corr = self.anal.get_correlation(energy / self.num_edges, step_rough)
+            corr = self.anal.get_correlation(energy / self.num_edges, step_rough, effbreak=False)[0]
             corr_normalized = corr / corr[0]
             y = corr_normalized.numpy()
             pylab.plot(x, y, label="%.2f"% beta)
@@ -561,7 +561,7 @@ class PlotData:
         tau = []
         for beta in beta_range:
             energy = self.get_energy_in_terms_of_num_steps(beta, step_max, sampling_method, sample_initial)
-            corr, step_eff = self.anal.get_correlation(energy / self.num_edges, step_rough)
+            corr, step_eff = self.anal.get_correlation(energy / self.num_edges, step_rough, effbreak=True)
             tau.append(self.anal.get_autocorrtime(corr, step_eff))
         if sampling_method=='rbm-mapping':
             pylab.plot(beta_range, tau, label='Ising-RBM mapping (ensemble=%d, N=%d, M=%d)' % (self.ensemble_size, step_max, step_rough))
@@ -617,13 +617,13 @@ class PlotData:
 ##################################################################################################################
 def main(plot_number):
     # set the size and interaction type of Ising model
-    num_rows, num_cols = 3, 3
+    num_rows, num_cols = 16, 16
     interaction = ['ferromagnetic', 'anti-ferromagnetic', 'random-bond']
     # set sample size
-    ensemble_size = 1000
+    ensemble_size = 1
     # set the number of markov-chain steps(N=step_max, step_rough) when sampling
-    step_max = [100, 100]
-    step_rough = 20
+    step_max = [50000, 50000]
+    step_rough = 1000
     # set the range of beta
     beta_start, beta_end, beta_step = 0.01, 1.0, 0.01
     beta_range = np.arange(beta_start, beta_end, beta_step)
@@ -651,4 +651,4 @@ def main(plot_number):
 #################################################################################################################
 
 if __name__ == '__main__':
-    main(1)
+    main(4)
