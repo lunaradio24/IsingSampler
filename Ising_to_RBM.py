@@ -3,6 +3,7 @@ import numpy as np
 import pylab
 from scipy import special
 from typing import Tuple
+import numba as nb
 
 
 def decimal_to_binary_tensor(value, width=0):
@@ -159,8 +160,8 @@ class IsingModel:
         return beta * self.get_energy_true(beta) + torch.log(Z)
 
 
-    def get_energy_onsagar(self, beta, interaction):
-        """Onsagar solution; analytic solution of energy for the infinite 2d square Ising lattice """
+    def get_energy_onsager(self, beta, interaction):
+        """Onsager solution; analytic solution of energy for the infinite 2d square Ising lattice """
         if interaction == 'ferromagnetic':
             J = 1.
         elif interaction == 'anti-ferromagnetic':
@@ -330,6 +331,7 @@ class IsingSampler:
         return v_next
 
 
+    @nb.jit(nopython=True, parallel=True)
     def sample_by_single_flip(self, beta, sample_initial):
         """sampling by metropolis Monte Carlo method with single-flip """
         spins = 1 - 2 * sample_initial
@@ -338,15 +340,15 @@ class IsingSampler:
         j = np.random.randint(0, self.num_cols - 1)
         n = self.num_cols * i + j
         # calculate the energy difference between before and after flip
-        dE = torch.zeros(self.ensemble_size)
+        dE = np.zeros(self.ensemble_size)
         for i_nhb, j_nhb in self.model.get_neighbors(i, j):
             n_nhb = self.num_cols * i_nhb + j_nhb
             J = self.model.J[n, n_nhb]
             dE += 2 * J * spins[:, n] * spins[:, n_nhb]
         # generate an uniform random number
-        r = torch.rand(self.ensemble_size)
+        r = np.rand(self.ensemble_size)
         # flip the spin if r < acceptance probability min(1, exp(-beta*dE))
-        spins[:, n] = torch.where(r < torch.exp(-beta * dE), -spins[:, n], spins[:, n])
+        spins[:, n] = np.where(r < np.exp(-beta * dE), -spins[:, n], spins[:, n])
         sample_final = (1-spins)/2
         return sample_final
 
@@ -467,8 +469,9 @@ class PlotData:
         # sampling by single-flip MC
         elif sampling_method == 'single-flip':
             for step_i in range(step_max):
+                sample_np = sample.numpy()
                 energy[step_i] = self.anal.get_energy_data(self.model, sample)
-                sample = self.sampler.sample_by_single_flip(beta, sample)
+                sample_np = self.sampler.sample_by_single_flip(beta, sample_np)
         else:
             raise Exception("invalid sampling_method")
         return energy
@@ -487,8 +490,10 @@ class PlotData:
         # sampling by single-flip MC
         elif sampling_method == 'single-flip':
             for i, beta in enumerate(beta_range):
+                sample_np = sample.numpy()
                 for _ in range(step_max):
-                    sample = self.sampler.sample_by_single_flip(beta, sample)
+                    sample_np = self.sampler.sample_by_single_flip(beta, sample_np)
+                sample = torch.from_numpy(sample_np)
                 energy[i] = self.anal.get_energy_data(self.model, sample)
         else:
             raise Exception("invalid sampling_method")
@@ -500,7 +505,7 @@ class PlotData:
         pylab.figure(1)
         E_anal = np.zeros(len(beta_range))
         #E_true = np.zeros(len(beta_range))
-        #E_onsagar = np.zeros(len(beta_range))
+        #E_onsager = np.zeros(len(beta_range))
 
         for i, beta in enumerate(beta_range):
             E_anal[i] = self.model.get_energy_anal(beta)
@@ -508,10 +513,10 @@ class PlotData:
 
         E_sample1 = self.get_energy_in_terms_of_beta(beta_range, step_max[0], sampling_methods[0], sample_initial).numpy()
         E_sample2 = self.get_energy_in_terms_of_beta(beta_range, step_max[1], sampling_methods[1], sample_initial).numpy()
-        #E_onsagar = self.model.get_energy_onsagar(beta_range, interaction)
+        #E_onsager = self.model.get_energy_onsager(beta_range, interaction)
 
         #pylab.plot(beta_range, E_true/self.num_edges, label='E_true')
-        #pylab.plot(beta_range, E_onsagar, label='E_onsagar')
+        #pylab.plot(beta_range, E_onsager, label='E_onsager')
         pylab.plot(beta_range, E_anal/self.num_edges, linestyle='dashed', label='E_analytic')
         pylab.plot(beta_range, E_sample1/self.num_edges, label='E_sample_rbm (ensemble=%d, MC steps=%d)' % (self.ensemble_size, step_max[0]))
         pylab.plot(beta_range, E_sample2/self.num_edges, label='E_sample_singleflip (ensemble=%d, MC steps=%d)' % (self.ensemble_size, step_max[1]))
@@ -583,10 +588,10 @@ class PlotData:
         tau2 = []
         for beta in beta_range:
             energy1 = self.get_energy_in_terms_of_num_steps(beta, step_max[0], sampling_method[0], sample_initial)
-            corr1, step_eff1 = self.anal.get_correlation(energy1 / self.num_edges, step_rough)
+            corr1, step_eff1 = self.anal.get_correlation(energy1 / self.num_edges, step_rough, effbreak=True)
             tau1.append(self.anal.get_autocorrtime(corr1, step_eff1))
             energy2 = self.get_energy_in_terms_of_num_steps(beta, step_max[1], sampling_method[1], sample_initial)
-            corr2, step_eff2 = self.anal.get_correlation(energy2 / self.num_edges, step_rough)
+            corr2, step_eff2 = self.anal.get_correlation(energy2 / self.num_edges, step_rough, effbreak=True)
             tau2.append(self.anal.get_autocorrtime(corr2, step_eff2))
         pylab.plot(beta_range, tau1, label='Ising-RBM mapping')
         pylab.plot(beta_range, tau2, label='Single-flip')
@@ -617,10 +622,10 @@ class PlotData:
 ##################################################################################################################
 def main(plot_number):
     # set the size and interaction type of Ising model
-    num_rows, num_cols = 16, 16
+    num_rows, num_cols = 4, 4
     interaction = ['ferromagnetic', 'anti-ferromagnetic', 'random-bond']
     # set sample size
-    ensemble_size = 1
+    ensemble_size = 100
     # set the number of markov-chain steps(N=step_max, step_rough) when sampling
     step_max = [50000, 50000]
     step_rough = 1000
@@ -628,10 +633,10 @@ def main(plot_number):
     beta_start, beta_end, beta_step = 0.01, 1.0, 0.01
     beta_range = np.arange(beta_start, beta_end, beta_step)
     # set initial sample and sampling methods
-    sample_initial = torch.zeros(ensemble_size, num_rows * num_cols)
+    sample_initial = torch.bernoulli(torch.rand(ensemble_size, num_rows * num_cols))
     sampling_methods = ['rbm-mapping', 'single-flip']
 
-    plot = PlotData(ensemble_size, num_rows, num_cols, interaction[0])
+    plot = PlotData(ensemble_size, num_rows, num_cols, interaction[2])
 
     if plot_number == 1:
         plot.plot_energy_over_beta(beta_range, step_max, interaction[0], sampling_methods, sample_initial)
@@ -651,4 +656,4 @@ def main(plot_number):
 #################################################################################################################
 
 if __name__ == '__main__':
-    main(4)
+    main(5)
